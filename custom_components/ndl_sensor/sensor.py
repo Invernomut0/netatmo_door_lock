@@ -34,7 +34,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
 
-    sensor = NDLSensor(hass, device_name, username, password)
+    sensor = NDLSensor(device_name, username, password)
     async_add_entities([sensor], True)
 
     # Registra il servizio
@@ -55,7 +55,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     username = config_entry.data["Username"]
     password = config_entry.data["Password"]
 
-    sensor = NDLSensor(hass, "Netatmo Door Lock", username, password)
+    sensor = NDLSensor("Netatmo Door Lock", username, password)
     async_add_entities([sensor], True)
 
     # Registra il servizio
@@ -72,7 +72,7 @@ class NDLSensor(Entity):
     def __init__(self, device_name, username, password):
         """Inizializza il sensore NDL."""
         self._name = device_name
-        self._state = None
+        self._state = "Locked"
         self._available = True
         self._username = username
         self._password = password
