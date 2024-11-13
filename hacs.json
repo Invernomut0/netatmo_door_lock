@@ -1,0 +1,13 @@
+{
+  "name": "Netatmo Door Lock",
+  "zip_release": true,
+  "filename": "ndl.zip",
+  "render_readme": true,
+  "country": [
+    "EN",
+    "FR",
+    "NL",
+    "IT"
+  ],
+  "homeassistant": "2024.3.0"
+}

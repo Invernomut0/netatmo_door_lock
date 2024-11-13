@@ -1,0 +1,13 @@
+{
+    "domain": "ndl_sensor",
+    "name": "NDL Sensor",
+    "version": "1.0",
+    "documentation": "https://github.com/Invernomut0/NDL_Sensor",
+    "dependencies": [],
+    "codeowners": [],
+    "requirements": [],
+    "config_flow": true,
+    "icons": {
+    "default": "avmc.png"
+  }
+  }
