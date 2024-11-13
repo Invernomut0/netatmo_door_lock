@@ -34,7 +34,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
 
-    sensor = NDLSensor(device_name, username, password)
+    sensor = NDLSensor(hass, device_name, username, password)
     async_add_entities([sensor], True)
 
     # Registra il servizio
