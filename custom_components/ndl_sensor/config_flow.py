@@ -12,15 +12,15 @@ class NDLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        
         return NDLFlowHandler(config_entry)
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(
-                title=user_input["device_name"],
+                title="NetatmoDoorLock",
                 data={
-                    "device_name": user_input["device_name"],
+                    "Username": user_input["Username"],
+                    "Password": user_input["Password"],
                 },
             )
 
@@ -29,7 +29,10 @@ class NDLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        "device_name",
+                        "Username",
+                    ): cv.string,
+                    vol.Required(
+                        "Password",
                     ): cv.string,
                 },
             ),

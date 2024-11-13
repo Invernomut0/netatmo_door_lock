@@ -1,13 +1,10 @@
 {
     "domain": "ndl_sensor",
-    "name": "NDL Sensor",
-    "version": "1.0",
-    "documentation": "https://github.com/Invernomut0/NDL_Sensor",
+    "name": "Netatmo Door Lock",
+    "documentation": "",
     "dependencies": [],
     "codeowners": [],
     "requirements": [],
-    "config_flow": true,
-    "icons": {
-    "default": "avmc.png"
-  }
-  }
+    "version": "1.0.0",
+    "iot_class": "cloud_polling"
+}

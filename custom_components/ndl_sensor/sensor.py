@@ -8,195 +8,188 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import dt
+
+from .utils import get_token, getNDL, open_door
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_DEVICE_NAME = "device_name"
+CONF_USERNAME = "Username"
+CONF_PASSWORD = "Password"
+CONF_DEVICE_NAME = "Netatmo Door Lock"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_DEVICE_NAME): cv.string,
+        vol.Required(CONF_USERNAME): cv.string,
+        vol.Required(CONF_PASSWORD): cv.string,
     }
 )
 
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    return
+    """Configura la piattaforma usando la configurazione YAML."""
+    device_name = config.get(CONF_DEVICE_NAME)
+    username = config.get(CONF_USERNAME)
+    password = config.get(CONF_PASSWORD)
+
+    sensor = NDLSensor(device_name, username, password)
+    async_add_entities([sensor], True)
+
+    # Registra il servizio
+    async def unlock_door(call):
+        await sensor.async_set_state("unlock")
+
+    hass.services.async_register(
+        "ndl_sensor",  # domain
+        "unlock_door",  # service name
+        unlock_door,
+    )
+
+    return True  # Importante: restituisce True per indicare il successo
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    device_name = config_entry.data[CONF_DEVICE_NAME]
+    device_name = "Netatmo Door Lock"
+    username = config_entry.data[CONF_USERNAME]
+    password = config_entry.data[CONF_PASSWORD]
 
-    dehumidification_sensor = DehumidificationSensor(device_name)
-    ndl_sensor = NDLSensor(device_name, dehumidification_sensor)
-    humidity_alarm_sensor = HumidityAlarmSensor(device_name)
-    #last_message_sensor = LastMessages(device_name)
-    last_interesting_message_sensor = LastInterestingMessages(device_name)
-    async_add_entities(
-        [
-            ndl_sensor,
-            dehumidification_sensor,
-            humidity_alarm_sensor,
-            #last_message_sensor,
-            last_interesting_message_sensor,
-        ]
+    sensor = NDLSensor(device_name, username, password)
+    async_add_entities([sensor], True)
+
+    # Registra il servizio
+    async def unlock_door(call):
+        await sensor.async_set_state("unlock")
+
+    hass.services.async_register(
+        "ndl_sensor",  # domain
+        "unlock_door",  # service name
+        unlock_door,
     )
 
 
 class NDLSensor(Entity):
-    def __init__(self, device_name, dehumidification_sensor):
-        self._name = f"{device_name} Sensor"
-        self._state = STATE_UNKNOWN
-        self._device_name = device_name
-        self._dehumidification_sensor = dehumidification_sensor
+    """Rappresentazione del sensore NDL."""
+
+    def __init__(self, device_name, username, password):
+        """Inizializza il sensore NDL."""
+        self._name = device_name
+        self._state = None
+        self._available = True
+        self._username = username
+        self._password = password
+        self._access_token = None
+        self._bridge_id = None
+        self._bridge = None
+        self._id = None
+
+    @property
+    def bridge(self):
+        """Restituisce l'ID della casa."""
+        return self._bridge
+
+    @property
+    def bridge_id(self):
+        """Restituisce l'ID della casa."""
+        return self._bridge_id
+
+    @property
+    def id(self):
+        """Restituisce l'ID del bridge."""
+        return self._id
 
     @property
     def name(self):
+        """Restituisce il nome del sensore."""
         return self._name
 
     @property
     def state(self):
+        """Restituisce lo stato del sensore."""
         return self._state
 
-    async def async_added_to_hass(self):
-        self.hass.bus.async_listen("myhome_message_event", self.handle_event)
-
-    @callback
-    def handle_event(self, event):
-        data = event.data
-        who = data.get("who")
-        where = data.get("where")
-        what = data.get("what")
-
-        if who == 25 and where == "231":
-            if what == 22:
-                self._state = "off"
-                self._dehumidification_sensor.set_state(
-                    "off"
-                )  # Chiamata a set_state per aggiornare Home Assistant
-            elif what == 24:
-                self._state = "on"
-            self.async_write_ha_state()
-
-
-class LastMessages(Entity):
-    def __init__(self, device_name):
-        self._name = f"{device_name} LastMessages"
-        self._state = deque(maxlen=10)
-        self._device_name = device_name
-
     @property
-    def name(self):
-        return self._name
+    def available(self):
+        """Restituisce se il sensore è disponibile."""
+        return self._available
 
-    @property
-    def state(self):
-        return self._state
+    async def async_update(self):
+        """Aggiorna lo stato del sensore."""
+        try:
+            if not self._access_token:
+                token_data = await self.hass.async_add_executor_job(
+                    get_token, self._username, self._password
+                )
+                if token_data and "access_token" in token_data:
+                    self._access_token = token_data["access_token"]
+                else:
+                    raise Exception("Impossibile ottenere il token di accesso")
 
-    async def async_added_to_hass(self):
-        self.hass.bus.async_listen("myhome_message_event", self.handle_event)
+            # TODO: Usa self._access_token per le chiamate API successive
+            self._available = True
+            ndl_data = await self.hass.async_add_executor_job(
+                getNDL, self._access_token
+            )
+            if ndl_data and "body" in ndl_data:
+                homes = ndl_data["body"].get("homes", [])
+                if homes:
+                    for home in homes:
+                        modules = home.get("modules", [])
+                        for module in modules:
+                            if module.get("type") == "BNDL":
+                                self._bridge = module.get("bridge")
+                                self._bridge_id = module.get("id")
+                                self._id = home.get("id")
+                                self._state = "Locked"
+                                break
+            else:
+                raise Exception("Impossibile ottenere i dati NDL")
 
-    @callback
-    def handle_event(self, event):
-        msg = event.data.get("message")
-        self._state.append(msg)
-        self.async_write_ha_state()
+        except Exception as ex:
+            _LOGGER.error("Errore nell'aggiornamento del sensore: %s", ex)
+            self._available = False
+            self._access_token = None
 
+    async def async_set_state(self, state):
+        """Imposta lo stato della serratura."""
+        try:
+            if not self._access_token:
+                token_data = await self.hass.async_add_executor_job(
+                    get_token, self._username, self._password
+                )
+                if token_data and "access_token" in token_data:
+                    self._access_token = token_data["access_token"]
+                else:
+                    raise Exception("Impossibile ottenere il token di accesso")
 
-class LastInterestingMessages(Entity):
-    def __init__(self, device_name):
-        self._name = f"{device_name} LastInterestingMessages"
-        self._state = deque(maxlen=10)
-        self._device_name = device_name
+            result = await self.hass.async_add_executor_job(
+                open_door,
+                self._access_token,
+                self._id,
+                self._bridge,
+                self._bridge_id,
+                False,
+            )
 
-    @property
-    def name(self):
-        return self._name
+            if result:
+                self._state = "Unlocked"
+                self._available = True
+                _LOGGER.info("Serratura aperta!")
 
-    @property
-    def state(self):
-        return self._state
+                # Genera l'evento di apertura porta
+                self.hass.bus.fire(
+                    "ndl_door_opened",
+                    {
+                        "device_id": self._bridge,
+                        "state": "Unlocked",
+                        "friendly_name": self._name,
+                        "timestamp": dt.utcnow().isoformat(),
+                    },
+                )
+            else:
+                raise Exception("Errore nel cambio di stato della serratura")
 
-    async def async_added_to_hass(self):
-        self.hass.bus.async_listen("myhome_message_event", self.handle_event)
-
-    @callback
-    def handle_event(self, event):
-        data = event.data
-        who = data.get("who")
-        where = data.get("where")
-        what = data.get("what")
-        msg = data.get("message")
-
-        if who == 1 or who == 25:
-            self._state.append(msg)
-            self.async_write_ha_state()
-
-
-class DehumidificationSensor(Entity):
-    def __init__(self, device_name):
-        self._name = f"{device_name} Deumidificazione"
-        self._state = STATE_UNKNOWN
-        self._device_name = device_name
-
-    def set_state(self, state):
-        """Set the state of the sensor and update Home Assistant."""
-        self._state = state
-        self.async_write_ha_state()
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def state(self):
-        return self._state
-
-    async def async_added_to_hass(self):
-        self.hass.bus.async_listen("myhome_message_event", self.handle_event)
-
-    @callback
-    def handle_event(self, event):
-        data = event.data
-        who = data.get("who")
-        where = data.get("where")
-        what = data.get("what")
-
-        if who == 1 and where in ["01", "02"]:
-            if what == 1:
-                self._state = "on"
-            elif what == 0:
-                self._state = "off"
-            self.async_write_ha_state()
-
-
-class HumidityAlarmSensor(Entity):
-    def __init__(self, device_name):
-        self._name = f"{device_name} Allarme Umidità"
-        self._state = STATE_UNKNOWN
-        self._device_name = device_name
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def state(self):
-        return self._state
-
-    async def async_added_to_hass(self):
-        self.hass.bus.async_listen("myhome_message_event", self.handle_event)
-
-    @callback
-    def handle_event(self, event):
-        data = event.data
-        who = data.get("who")
-        where = data.get("where")
-        what = data.get("what")
-
-        if who == 1 and where == "03":
-            if what == 0:
-                self._state = "on"
-            elif what == 1:
-                self._state = "off"
-            self.async_write_ha_state()
+        except Exception as ex:
+            _LOGGER.error("Errore nell'impostazione dello stato: %s", ex)
+            self._available = False
+            self._access_token = None
