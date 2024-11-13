@@ -13,6 +13,7 @@ from homeassistant.util import dt
 from .utils import get_token, getNDL, open_door
 
 _LOGGER = logging.getLogger(__name__)
+DOMAIN = "ndl_sensor"
 
 CONF_USERNAME = "Username"
 CONF_PASSWORD = "Password"
@@ -50,22 +51,19 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    device_name = "Netatmo Door Lock"
-    username = config_entry.data[CONF_USERNAME]
-    password = config_entry.data[CONF_PASSWORD]
+    """Set up the sensor platform from config entry."""
+    username = config_entry.data["Username"]
+    password = config_entry.data["Password"]
 
-    sensor = NDLSensor(device_name, username, password)
+    sensor = NDLSensor(hass, "Netatmo Door Lock", username, password)
     async_add_entities([sensor], True)
 
     # Registra il servizio
     async def unlock_door(call):
         await sensor.async_set_state("unlock")
 
-    hass.services.async_register(
-        "ndl_sensor",  # domain
-        "unlock_door",  # service name
-        unlock_door,
-    )
+    hass.services.async_register(DOMAIN, "unlock_door", unlock_door)
+    return True
 
 
 class NDLSensor(Entity):

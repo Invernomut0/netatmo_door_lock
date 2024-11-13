@@ -1,6 +1,7 @@
 {
     "domain": "ndl_sensor",
     "name": "Netatmo Door Lock",
+    "config_flow": true,
     "documentation": "",
     "dependencies": [],
     "codeowners": [],
