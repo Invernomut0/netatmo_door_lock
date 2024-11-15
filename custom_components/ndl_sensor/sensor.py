@@ -16,7 +16,8 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "ndl_sensor"
 
 CONF_USERNAME = "Username"
-CONF_PASSWORD = "Password"
+CONF_PASSWORD = "password"
+
 CONF_DEVICE_NAME = "Netatmo Door Lock"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -82,6 +83,11 @@ class NDLSensor(Entity):
         self._id = None
 
     @property
+    def icon(self):
+        """Restituisce l'icona del sensore."""
+        return "mdi:lock"
+
+    @property
     def bridge(self):
         """Restituisce l'ID della casa."""
         return self._bridge
@@ -111,43 +117,6 @@ class NDLSensor(Entity):
         """Restituisce se il sensore è disponibile."""
         return self._available
 
-    async def async_update(self):
-        """Aggiorna lo stato del sensore."""
-        try:
-            if not self._access_token:
-                token_data = await self.hass.async_add_executor_job(
-                    get_token, self._username, self._password
-                )
-                if token_data and "access_token" in token_data:
-                    self._access_token = token_data["access_token"]
-                else:
-                    raise Exception("Impossibile ottenere il token di accesso")
-
-            # TODO: Usa self._access_token per le chiamate API successive
-            self._available = True
-            ndl_data = await self.hass.async_add_executor_job(
-                getNDL, self._access_token
-            )
-            if ndl_data and "body" in ndl_data:
-                homes = ndl_data["body"].get("homes", [])
-                if homes:
-                    for home in homes:
-                        modules = home.get("modules", [])
-                        for module in modules:
-                            if module.get("type") == "BNDL":
-                                self._bridge = module.get("bridge")
-                                self._bridge_id = module.get("id")
-                                self._id = home.get("id")
-                                self._state = "Locked"
-                                break
-            else:
-                raise Exception("Impossibile ottenere i dati NDL")
-
-        except Exception as ex:
-            _LOGGER.error("Errore nell'aggiornamento del sensore: %s", ex)
-            self._available = False
-            self._access_token = None
-
     async def async_set_state(self, state):
         """Imposta lo stato della serratura."""
         try:
@@ -159,6 +128,23 @@ class NDLSensor(Entity):
                     self._access_token = token_data["access_token"]
                 else:
                     raise Exception("Impossibile ottenere il token di accesso")
+
+            # Otteniamo i dati NDL solo se non abbiamo ancora gli ID necessari
+            if not all([self._id, self._bridge, self._bridge_id]):
+                ndl_data = await self.hass.async_add_executor_job(
+                    getNDL, self._access_token
+                )
+                if ndl_data and "body" in ndl_data:
+                    homes = ndl_data["body"].get("homes", [])
+                    if homes:
+                        for home in homes:
+                            modules = home.get("modules", [])
+                            for module in modules:
+                                if module.get("type") == "BNDL":
+                                    self._bridge = module.get("bridge")
+                                    self._bridge_id = module.get("id")
+                                    self._id = home.get("id")
+                                    break
 
             result = await self.hass.async_add_executor_job(
                 open_door,

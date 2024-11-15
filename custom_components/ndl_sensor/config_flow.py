@@ -1,55 +1,70 @@
+"""Config flow for Netatmo Door Lock integration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
 import voluptuous as vol
+
 from homeassistant import config_entries
-from homeassistant.core import callback
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.config_validation as cv
 
-DOMAIN = "ndl_sensor"
+from .utils import get_token
+from . import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+STEP_USER_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required("Username"): cv.string,
+        vol.Required("password"): cv.string,
+    }
+)
 
 
 class NDLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    """Handle a config flow for Netatmo Door Lock."""
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry):
-        return NDLFlowHandler(config_entry)
+    VERSION = 2
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the initial step."""
+        errors = {}
+
         if user_input is not None:
-            return self.async_create_entry(
-                title="NetatmoDoorLock",
-                data={
-                    "Username": user_input["Username"],
-                    "Password": user_input["Password"],
-                },
-            )
+            try:
+                # Validate the credentials
+                token_data = await self.hass.async_add_executor_job(
+                    get_token, user_input["Username"], user_input["password"]
+                )
+
+                if token_data and "access_token" in token_data:
+                    # Check if already configured
+                    await self.async_set_unique_id(user_input["Username"])
+                    self._abort_if_unique_id_configured()
+
+                    return self.async_create_entry(
+                        title="Netatmo Door Lock",
+                        data={
+                            "Username": user_input["Username"],
+                            "Password": user_input["password"],
+                        },
+                    )
+                else:
+                    errors["base"] = "invalid_auth"
+
+            except Exception as ex:
+                _LOGGER.exception("Unexpected exception: %s", str(ex))
+                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "Username",
-                    ): cv.string,
-                    vol.Required(
-                        "Password",
-                    ): cv.string,
-                },
-            ),
-        )
-
-
-class NDLFlowHandler(config_entries.OptionsFlow):
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
-
-    async def async_step_init(self, user_input=None):
-        return await self.async_step_user()
-
-    async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        return self.async_show_form(
-            step_id="user", data_schema=vol.Schema({vol.Required("password"): str})
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
         )

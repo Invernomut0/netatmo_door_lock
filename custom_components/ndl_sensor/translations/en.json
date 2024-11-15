@@ -2,8 +2,8 @@
     "config": {
       "step": {
         "user": {
-          "title": "Setup Netatmo Dorro Lock",
-          "description": "ALPHA Version - Arborea Release",
+          "title": "Setup Netatmo Door Lock",
+          "description": "ALPHA Version - Arborea Release - Lorenzo Vismara",
           "data": {
             "device_name": "Name of the NDL sensor device"
           }
