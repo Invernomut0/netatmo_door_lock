@@ -142,6 +142,7 @@ class NDLSensor(Entity):
         self._bridge_id = bridge_id
         self._bridge = bridge
         self._id = home_id
+        self._lock_state = {}  # Aggiungi dizionario per tracciare lo stato individuale
 
     @property
     def icon(self):
@@ -190,23 +191,6 @@ class NDLSensor(Entity):
                 else:
                     raise Exception("Impossibile ottenere il token di accesso")
 
-            # Otteniamo i dati NDL solo se non abbiamo ancora gli ID necessari
-            if not all([self._id, self._bridge, self._bridge_id]):
-                ndl_data = await self.hass.async_add_executor_job(
-                    getNDL, self._access_token
-                )
-                if ndl_data and "body" in ndl_data:
-                    homes = ndl_data["body"].get("homes", [])
-                    if homes:
-                        for home in homes:
-                            modules = home.get("modules", [])
-                            for module in modules:
-                                if module.get("type") == "BNDL":
-                                    self._bridge = module.get("bridge")
-                                    self._bridge_id = module.get("id")
-                                    self._id = home.get("id")
-                                    break
-
             result = await self.hass.async_add_executor_job(
                 open_door,
                 self._access_token,
@@ -217,24 +201,24 @@ class NDLSensor(Entity):
             )
 
             if result:
-                self._state = "Unlocked"
+                self._lock_state[self._bridge_id] = "Unlocked"  # Usa l'ID univoco del bridge
+                self._state = self._lock_state[self._bridge_id]
                 self._available = True
-                _LOGGER.info("Serratura aperta!")
+                _LOGGER.info(f"Serratura {self._name} aperta!")
 
-                # Genera l'evento di apertura porta
                 self.hass.bus.fire(
                     "ndl_door_opened",
                     {
                         "device_id": self._bridge,
-                        "state": "Unlocked",
+                        "state": self._state,
                         "friendly_name": self._name,
                         "timestamp": dt.utcnow().isoformat(),
                     },
                 )
             else:
-                raise Exception("Errore nel cambio di stato della serratura")
+                raise Exception(f"Errore nel cambio di stato della serratura {self._name}")
 
         except Exception as ex:
-            _LOGGER.error("Errore nell'impostazione dello stato: %s", ex)
+            _LOGGER.error(f"Errore nell'impostazione dello stato per {self._name}: {ex}")
             self._available = False
             self._access_token = None
