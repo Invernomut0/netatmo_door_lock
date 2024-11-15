@@ -126,6 +126,7 @@ def getNDL(access_token):
     try:
         response = requests.post(url, headers=headers, json=body)
         response.raise_for_status()
+        _LOGGER.info(response.json())
         return response.json()
     except requests.exceptions.RequestException as e:
         _LOGGER.error(f"Errore nel recupero dei dati NDL: {e}")

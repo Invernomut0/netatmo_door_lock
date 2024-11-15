@@ -31,24 +31,55 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Configura la piattaforma usando la configurazione YAML."""
-    device_name = config.get(CONF_DEVICE_NAME)
     username = config.get(CONF_USERNAME)
     password = config.get(CONF_PASSWORD)
 
-    sensor = NDLSensor(device_name, username, password)
-    async_add_entities([sensor], True)
+    # Ottieni il token di accesso
+    token_data = await hass.async_add_executor_job(get_token, username, password)
+    if not token_data or "access_token" not in token_data:
+        _LOGGER.error("Impossibile ottenere il token di accesso")
+        return False
+
+    access_token = token_data["access_token"]
+
+    # Ottieni i dati NDL
+    ndl_data = await hass.async_add_executor_job(getNDL, access_token)
+    if not ndl_data or "body" not in ndl_data:
+        _LOGGER.error("Impossibile ottenere i dati NDL")
+        return False
+
+    sensors = []
+    homes = ndl_data["body"].get("homes", [])
+    for home in homes:
+        modules = home.get("modules", [])
+        for module in modules:
+            if module.get("type") == "BNDL":
+                sensor = NDLSensor(
+                    module.get("name", "Netatmo Door Lock"),  # Usa il nome del modulo
+                    username,
+                    password,
+                    home.get("id"),
+                    module.get("bridge"),
+                    module.get("id"),
+                )
+                sensors.append(sensor)
+
+    if not sensors:
+        _LOGGER.error("Nessun sensore BNDL trovato")
+        return False
+
+    async_add_entities(sensors, True)
 
     # Registra il servizio
     async def unlock_door(call):
-        await sensor.async_set_state("unlock")
+        entity_id = call.data.get("entity_id")
+        for sensor in sensors:
+            if sensor.entity_id == entity_id:
+                await sensor.async_set_state("unlock")
+                break
 
-    hass.services.async_register(
-        "ndl_sensor",  # domain
-        "unlock_door",  # service name
-        unlock_door,
-    )
-
-    return True  # Importante: restituisce True per indicare il successo
+    hass.services.async_register(DOMAIN, "unlock_door", unlock_door)
+    return True
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -56,21 +87,51 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     username = config_entry.data["Username"]
     password = config_entry.data["Password"]
 
-    sensor = NDLSensor("Netatmo Door Lock", username, password)
-    async_add_entities([sensor], True)
+    # Simile a async_setup_platform
+    token_data = await hass.async_add_executor_job(get_token, username, password)
+    if not token_data or "access_token" not in token_data:
+        return False
 
-    # Registra il servizio
-    async def unlock_door(call):
-        await sensor.async_set_state("unlock")
+    access_token = token_data["access_token"]
+    ndl_data = await hass.async_add_executor_job(getNDL, access_token)
+    if not ndl_data or "body" not in ndl_data:
+        return False
 
-    hass.services.async_register(DOMAIN, "unlock_door", unlock_door)
-    return True
+    sensors = []
+    homes = ndl_data["body"].get("homes", [])
+    for home in homes:
+        modules = home.get("modules", [])
+        for module in modules:
+            if module.get("type") == "BNDL":
+                sensor = NDLSensor(
+                    module.get("name", "Netatmo Door Lock"),
+                    username,
+                    password,
+                    home.get("id"),
+                    module.get("bridge"),
+                    module.get("id"),
+                )
+                sensors.append(sensor)
+
+    if sensors:
+        async_add_entities(sensors, True)
+
+        async def unlock_door(call):
+            entity_id = call.data.get("entity_id")
+            for sensor in sensors:
+                if sensor.entity_id == entity_id:
+                    await sensor.async_set_state("unlock")
+                    break
+
+        hass.services.async_register(DOMAIN, "unlock_door", unlock_door)
+        return True
+    return False
 
 
 class NDLSensor(Entity):
     """Rappresentazione del sensore NDL."""
 
-    def __init__(self, device_name, username, password):
+    def __init__(self, device_name, username, password, home_id, bridge, bridge_id):
         """Inizializza il sensore NDL."""
         self._name = device_name
         self._state = "Locked"
@@ -78,9 +139,9 @@ class NDLSensor(Entity):
         self._username = username
         self._password = password
         self._access_token = None
-        self._bridge_id = None
-        self._bridge = None
-        self._id = None
+        self._bridge_id = bridge_id
+        self._bridge = bridge
+        self._id = home_id
 
     @property
     def icon(self):
